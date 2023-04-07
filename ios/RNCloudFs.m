@@ -23,7 +23,7 @@
 RCT_EXPORT_MODULE()
 
 //see https://developer.apple.com/library/content/documentation/General/Conceptual/iCloudDesignGuide/Chapters/iCloudFundametals.html
-  
+
 RCT_EXPORT_METHOD(isAvailable:(RCTPromiseResolveBlock)resolve
                 rejecter:(RCTPromiseRejectBlock)reject) {
 
@@ -170,17 +170,30 @@ RCT_EXPORT_METHOD(listFiles:(NSDictionary *)options
 }
 
 
-RCT_EXPORT_METHOD(getIcloudDocument:(NSString *)filename
+RCT_EXPORT_METHOD(getIcloudDocument:(NSDictionary *)options
 resolver:(RCTPromiseResolveBlock)resolver
 rejecter:(RCTPromiseRejectBlock)rejecter) {
+    NSString *destinationPath = [options objectForKey:@"targetPath"];
+    NSString *scope = [options objectForKey:@"scope"];
+
     __block bool resolved = NO;
     _query = [[NSMetadataQuery alloc] init];
 
-    [_query setSearchScopes:@[NSMetadataQueryUbiquitousDocumentsScope, NSMetadataQueryUbiquitousDataScope]];
+    bool documentsFolder = !scope || [scope caseInsensitiveCompare:@"visible"] == NSOrderedSame;
+
+    NSURL *ubiquityURL = documentsFolder ? [self icloudDocumentsDirectory] : [self icloudDirectory];
+    NSURL* expectedURL = [ubiquityURL URLByAppendingPathComponent:destinationPath];
+
+    if(documentsFolder){
+      [_query setSearchScopes:@[NSMetadataQueryUbiquitousDocumentsScope]];
+    } else {
+      [_query setSearchScopes:@[NSMetadataQueryUbiquitousDataScope]];
+    }
+
+    NSString *filename = [destinationPath lastPathComponent];
 
     NSPredicate *pred = [NSPredicate predicateWithFormat: @"%K == %@", NSMetadataItemFSNameKey, filename];
     [_query setPredicate:pred];
-    
 
     [[NSNotificationCenter defaultCenter] addObserverForName:
      NSMetadataQueryDidFinishGatheringNotification
@@ -191,7 +204,9 @@ rejecter:(RCTPromiseRejectBlock)rejecter) {
         [query disableUpdates];
         [query stopQuery];
         for (NSMetadataItem *item in query.results) {
-            if([[item valueForAttribute:NSMetadataItemFSNameKey] isEqualToString:filename]){
+            // NSString *relativePath = [[url path] stringByReplacingOccurrencesOfString:[ubiquityURL path] withString:@"."];
+            NSURL *url = [item valueForAttribute:NSMetadataItemURLKey];
+            if ([url isEqual:expectedURL]) {
                 resolved = YES;
                 NSURL *url = [item valueForAttribute:NSMetadataItemURLKey];
                 bool fileIsReady = [self downloadFileIfNotAvailable: item];
@@ -201,12 +216,12 @@ rejecter:(RCTPromiseRejectBlock)rejecter) {
                     return resolver(content);
                 } else {
                     // Call itself until the file it's ready
-                    [self getIcloudDocument:filename resolver:resolver rejecter:rejecter];
+                    [self getIcloudDocument:options resolver:resolver rejecter:rejecter];
                 }
             }
         }
         if(!resolved){
-            return rejecter(@"error", [NSString stringWithFormat:@"item not found '%@'", filename], nil);
+            return resolver(nil);
         }
     }];
 
@@ -220,7 +235,7 @@ RCT_EXPORT_METHOD(deleteFromCloud:(NSDictionary *)item
 resolver:(RCTPromiseResolveBlock)resolver
 rejecter:(RCTPromiseRejectBlock)rejecter) {
    NSError *error;
-   
+
     NSFileManager* fileManager = [NSFileManager defaultManager];
     [fileManager removeItemAtPath:item[@"path"] error:&error];
     if(error) {
@@ -433,21 +448,21 @@ RCT_EXPORT_METHOD(copyToCloud:(NSDictionary *)options
 
 RCT_EXPORT_METHOD(syncCloud:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject) {
-    
+
     _query = [[NSMetadataQuery alloc] init];
     [_query setSearchScopes:@[NSMetadataQueryUbiquitousDocumentsScope, NSMetadataQueryUbiquitousDataScope]];
     [_query setPredicate:[NSPredicate predicateWithFormat: @"%K LIKE '*'", NSMetadataItemFSNameKey]];
 
 
     dispatch_async(dispatch_get_main_queue(), ^{
-        
+
         BOOL startedQuery = [self->_query startQuery];
         if (!startedQuery)
         {
             reject(@"error", @"Failed to start query.\n", nil);
         }
     });
-    
+
     [[NSNotificationCenter defaultCenter] addObserverForName:
      NSMetadataQueryDidFinishGatheringNotification
     object:_query queue:[NSOperationQueue currentQueue]
@@ -461,7 +476,7 @@ RCT_EXPORT_METHOD(syncCloud:(RCTPromiseResolveBlock)resolve
         }
         return resolve(@YES);
     }];
-    
+
 }
 
 @end
