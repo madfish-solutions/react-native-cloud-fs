@@ -182,7 +182,7 @@ rejecter:(RCTPromiseRejectBlock)rejecter) {
     bool documentsFolder = !scope || [scope caseInsensitiveCompare:@"visible"] == NSOrderedSame;
 
     NSURL *ubiquityURL = documentsFolder ? [self icloudDocumentsDirectory] : [self icloudDirectory];
-    NSURL* expectedURL = [ubiquityURL URLByAppendingPathComponent:destinationPath];
+    NSURL *expectedURL = [ubiquityURL URLByAppendingPathComponent:destinationPath];
 
     if(documentsFolder){
       [_query setSearchScopes:@[NSMetadataQueryUbiquitousDocumentsScope]];
@@ -204,20 +204,22 @@ rejecter:(RCTPromiseRejectBlock)rejecter) {
         [query disableUpdates];
         [query stopQuery];
         for (NSMetadataItem *item in query.results) {
-            // NSString *relativePath = [[url path] stringByReplacingOccurrencesOfString:[ubiquityURL path] withString:@"."];
             NSURL *url = [item valueForAttribute:NSMetadataItemURLKey];
+            // NSString *relativePath = [[url path] stringByReplacingOccurrencesOfString:[ubiquityURL path] withString:@"."];
+            // if ([[url path] hasSuffix:destinationPath]) {
             if ([url isEqual:expectedURL]) {
                 resolved = YES;
-                NSURL *url = [item valueForAttribute:NSMetadataItemURLKey];
-                bool fileIsReady = [self downloadFileIfNotAvailable: item];
+                bool fileIsReady = [self startFileDownloadIfNotAvailable: item];
                 if(fileIsReady){
                     NSData *data = [NSData dataWithContentsOfURL: url];
                     NSString *content = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
                     return resolver(content);
-                } else {
-                    // Call itself until the file it's ready
-                    [self getIcloudDocument:options resolver:resolver rejecter:rejecter];
                 }
+                // Call itself until the file is ready
+                RCTLogTrace(@"Waiting async 2s before retrying...");
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                    [self getIcloudDocument:options resolver:resolver rejecter:rejecter];
+                });
             }
         }
         if(!resolved){
@@ -427,22 +429,22 @@ RCT_EXPORT_METHOD(copyToCloud:(NSDictionary *)options
 
 
 
-- (BOOL)downloadFileIfNotAvailable:(NSMetadataItem*)item {
+- (BOOL)startFileDownloadIfNotAvailable:(NSMetadataItem*)item {
     if ([[item valueForAttribute:NSMetadataUbiquitousItemDownloadingStatusKey] isEqualToString:NSMetadataUbiquitousItemDownloadingStatusCurrent]){
         NSLog(@"File is ready!");
         return YES;
     }
-    // Download the file.
-    NSFileManager*  fm = [NSFileManager defaultManager];
+
+    // Starting download
+    NSFileManager *fm = [NSFileManager defaultManager];
     NSError *downloadError = nil;
     [fm startDownloadingUbiquitousItemAtURL:[item valueForAttribute:NSMetadataItemURLKey] error:&downloadError];
+
     if (downloadError) {
         NSLog(@"Error occurred starting download: %@", downloadError);
     }
-    NSLog(@"Waiting before retrying...");
-    [NSThread sleepForTimeInterval:0.3];
-    return NO;
 
+    return NO;
 }
 
 
@@ -472,7 +474,7 @@ RCT_EXPORT_METHOD(syncCloud:(RCTPromiseResolveBlock)resolve
         [query disableUpdates];
         [query stopQuery];
         for (NSMetadataItem *item in query.results) {
-            [self downloadFileIfNotAvailable: item];
+            [self startFileDownloadIfNotAvailable: item];
         }
         return resolve(@YES);
     }];
