@@ -173,6 +173,19 @@ RCT_EXPORT_METHOD(listFiles:(NSDictionary *)options
 RCT_EXPORT_METHOD(getIcloudDocument:(NSDictionary *)options
 resolver:(RCTPromiseResolveBlock)resolver
 rejecter:(RCTPromiseRejectBlock)rejecter) {
+    [self getIcloudDocumentRecurse:options resolver:resolver rejecter:rejecter retryCount:1];
+}
+
+- (void)getIcloudDocumentRecurse:(NSDictionary *)options
+resolver:(RCTPromiseResolveBlock)resolver
+rejecter:(RCTPromiseRejectBlock)rejecter
+retryCount:(int)retryCount {
+    if (retryCount > 30) {
+        NSString *errMsg = @"Failed to read document in 60 seconds";
+        RCTLogTrace(errMsg);
+        return rejecter(@"error", errMsg, nil);
+    }
+
     NSString *destinationPath = [options objectForKey:@"targetPath"];
     NSString *scope = [options objectForKey:@"scope"];
 
@@ -218,8 +231,9 @@ rejecter:(RCTPromiseRejectBlock)rejecter) {
                 // Call itself until the file is ready
                 RCTLogTrace(@"Waiting async 2s before retrying...");
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [self getIcloudDocument:options resolver:resolver rejecter:rejecter];
+                    [self getIcloudDocumentRecurse:options resolver:resolver rejecter:rejecter retryCount:retryCount+1];
                 });
+                break;
             }
         }
         if(!resolved){
@@ -430,7 +444,8 @@ RCT_EXPORT_METHOD(copyToCloud:(NSDictionary *)options
 
 
 - (BOOL)startFileDownloadIfNotAvailable:(NSMetadataItem*)item {
-    if ([[item valueForAttribute:NSMetadataUbiquitousItemDownloadingStatusKey] isEqualToString:NSMetadataUbiquitousItemDownloadingStatusCurrent]){
+    NSString *downloadingStatus = [item valueForAttribute:NSMetadataUbiquitousItemDownloadingStatusKey];
+    if ([downloadingStatus isEqualToString:NSMetadataUbiquitousItemDownloadingStatusCurrent]) {
         NSLog(@"File is ready!");
         return YES;
     }

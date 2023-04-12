@@ -23,7 +23,7 @@ export interface TargetPathAndScope {
   targetPath: string;
 }
 
-declare const defaultExport: {
+declare const defaultExport: Readonly<{
   /** iOS only */
   isAvailable: () => Promise<boolean>;
 
@@ -93,6 +93,6 @@ declare const defaultExport: {
 
   /** iOS only */
   getIcloudDocument: (options: TargetPathAndScope) => Promise<string | undefined>;
-};
+}>;
 
 export default defaultExport;
