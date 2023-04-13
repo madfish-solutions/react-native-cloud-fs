@@ -170,16 +170,20 @@ RCT_EXPORT_METHOD(listFiles:(NSDictionary *)options
 }
 
 
-RCT_EXPORT_METHOD(getIcloudDocument:(NSDictionary *)options
-resolver:(RCTPromiseResolveBlock)resolver
-rejecter:(RCTPromiseRejectBlock)rejecter) {
-    [self getIcloudDocumentRecurse:options resolver:resolver rejecter:rejecter retryCount:1];
+RCT_EXPORT_METHOD(getIcloudDocument
+    :(NSDictionary *)options
+    :(RCTPromiseResolveBlock)resolver
+    :(RCTPromiseRejectBlock)rejecter
+) {
+    [self getIcloudDocumentRecurse:options :resolver :rejecter :1];
 }
 
-- (void)getIcloudDocumentRecurse:(NSDictionary *)options
-resolver:(RCTPromiseResolveBlock)resolver
-rejecter:(RCTPromiseRejectBlock)rejecter
-retryCount:(int)retryCount {
+- (void)getIcloudDocumentRecurse
+    :(NSDictionary *)options
+    :(RCTPromiseResolveBlock)resolver
+    :(RCTPromiseRejectBlock)rejecter
+    :(int)retryCount
+{
     if (retryCount > 30) {
         NSString *errMsg = @"Failed to read document in 60 seconds";
         RCTLogTrace(errMsg);
@@ -189,13 +193,9 @@ retryCount:(int)retryCount {
     NSString *destinationPath = [options objectForKey:@"targetPath"];
     NSString *scope = [options objectForKey:@"scope"];
 
-    __block bool resolved = NO;
-    _query = [[NSMetadataQuery alloc] init];
+    NSMetadataQuery *_query = [[NSMetadataQuery alloc] init];
 
     bool documentsFolder = !scope || [scope caseInsensitiveCompare:@"visible"] == NSOrderedSame;
-
-    NSURL *ubiquityURL = documentsFolder ? [self icloudDocumentsDirectory] : [self icloudDirectory];
-    NSURL *expectedURL = [ubiquityURL URLByAppendingPathComponent:destinationPath];
 
     if(documentsFolder){
       [_query setSearchScopes:@[NSMetadataQueryUbiquitousDocumentsScope]];
@@ -203,46 +203,52 @@ retryCount:(int)retryCount {
       [_query setSearchScopes:@[NSMetadataQueryUbiquitousDataScope]];
     }
 
-    NSString *filename = [destinationPath lastPathComponent];
+    NSURL *ubiquityURL = documentsFolder ? [self icloudDocumentsDirectory] : [self icloudDirectory];
+    NSURL *expectedURL = [ubiquityURL URLByAppendingPathComponent:destinationPath];
+    // NSString *relativePath = [[url path] stringByReplacingOccurrencesOfString:[ubiquityURL path] withString:@"."];
+    NSString *expectedPath = [expectedURL path];
 
-    NSPredicate *pred = [NSPredicate predicateWithFormat: @"%K == %@", NSMetadataItemFSNameKey, filename];
+    NSPredicate *pred = [NSPredicate predicateWithFormat: @"%K == %@", NSMetadataItemPathKey, expectedPath];
     [_query setPredicate:pred];
 
-    [[NSNotificationCenter defaultCenter] addObserverForName:
-     NSMetadataQueryDidFinishGatheringNotification
-    object:_query queue:[NSOperationQueue currentQueue]
-    usingBlock:^(NSNotification __strong *notification)
+    [[NSNotificationCenter defaultCenter] addObserverForName:NSMetadataQueryDidFinishGatheringNotification
+        object:_query
+        queue:[NSOperationQueue currentQueue]
+        usingBlock:^(NSNotification __strong *notification)
     {
         NSMetadataQuery *query = [notification object];
         [query disableUpdates];
         [query stopQuery];
-        for (NSMetadataItem *item in query.results) {
-            NSURL *url = [item valueForAttribute:NSMetadataItemURLKey];
-            // NSString *relativePath = [[url path] stringByReplacingOccurrencesOfString:[ubiquityURL path] withString:@"."];
-            // if ([[url path] hasSuffix:destinationPath]) {
-            if ([url isEqual:expectedURL]) {
-                resolved = YES;
-                bool fileIsReady = [self startFileDownloadIfNotAvailable: item];
-                if(fileIsReady){
-                    NSData *data = [NSData dataWithContentsOfURL: url];
-                    NSString *content = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-                    return resolver(content);
-                }
-                // Call itself until the file is ready
-                RCTLogTrace(@"Waiting async 2s before retrying...");
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                    [self getIcloudDocumentRecurse:options resolver:resolver rejecter:rejecter retryCount:retryCount+1];
-                });
-                break;
-            }
-        }
-        if(!resolved){
+        // _query = nil;
+
+        if ([query resultCount] < 1) {
             return resolver(nil);
+        } else if ([query resultCount] == 1) {
+            NSMetadataItem *item = [query resultAtIndex:0];
+            NSURL *url = [item valueForAttribute:NSMetadataItemURLKey];
+            bool fileIsReady = [self startFileDownloadIfNotAvailable: item];
+            if(fileIsReady){
+                NSData *data = [NSData dataWithContentsOfURL: url];
+                NSString *content = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+                return resolver(content);
+            }
+            // Call itself until the file is ready
+            RCTLogTrace(@"Waiting async 2s before retrying...");
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                [self getIcloudDocumentRecurse:options :resolver :rejecter :retryCount+1];
+            });
+        } else {
+            return rejecter(@"error", @"Found multiple documents", nil);
         }
     }];
 
     dispatch_async(dispatch_get_main_queue(), ^{
-        [self->_query startQuery];
+
+        BOOL startedQuery = [_query startQuery];
+        if (!startedQuery)
+        {
+            rejecter(@"error", @"Failed to start query", nil);
+        }
     });
 
 }
@@ -440,7 +446,6 @@ RCT_EXPORT_METHOD(copyToCloud:(NSDictionary *)options
     NSString *resourcePath = [[documentsDirectory stringByAppendingPathComponent:resource] stringByAppendingPathExtension:type];
     return [NSURL fileURLWithPath:resourcePath];
 }
-
 
 
 - (BOOL)startFileDownloadIfNotAvailable:(NSMetadataItem*)item {

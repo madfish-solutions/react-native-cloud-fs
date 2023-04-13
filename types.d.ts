@@ -30,6 +30,7 @@ declare const defaultExport: Readonly<{
   /** Android only */
   loginIfNeeded: () => Promise<boolean>;
 
+  /** Android only */
   requestSignIn: () => void;
 
   /** iOS only
@@ -43,9 +44,10 @@ declare const defaultExport: Readonly<{
    */
   syncCloud: () => Promise<void>;
 
+  /** Android only */
   logout: () => Promise<boolean>;
 
-  /**
+  /** Android only
    * (!) Broken - does nothing
    *
    * (!) Don't await - won't return.
@@ -56,6 +58,8 @@ declare const defaultExport: Readonly<{
 
   /**
    * (!) Won't return for Android, if not signed-in via `loginIfNeeded`
+   *
+   * (!) Accounts only for already downloaded files for iOS
    */
   listFiles: (options: TargetPathAndScope) => Promise<
     | {
@@ -87,7 +91,7 @@ declare const defaultExport: Readonly<{
         }
   ) => Promise<boolean>;
 
-  deleteFromCloud: (fileId: string) => Promise<unknown>;
+  // deleteFromCloud: (fileId: string) => Promise<unknown>;
 
   getGoogleDriveDocument: (fileId: string) => Promise<string>;
 
