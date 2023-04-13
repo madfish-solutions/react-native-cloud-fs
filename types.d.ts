@@ -33,16 +33,13 @@ declare const defaultExport: Readonly<{
   /** Android only */
   requestSignIn: () => void;
 
-  /** iOS only
+  /**
+   * (i) Only initiates syncing.
+   * Files won't necessarily be immediately ready to use
    *
-   * (!) Flawed - doesn't help in one call.
-   * `listFiles` won't be always ready to return valid info
-   *
-   * (!) Won't return if `isAvailable` returns false
-   *
-   * (i) Attempts to load all the iCloud Drive files
+   * (!) Attempts to load all the iCloud Drive files
    */
-  syncCloud: () => Promise<void>;
+  startIcloudSync: () => Promise<void>;
 
   /** Android only */
   logout: () => Promise<boolean>;
@@ -59,7 +56,7 @@ declare const defaultExport: Readonly<{
   /**
    * (!) Won't return for Android, if not signed-in via `loginIfNeeded`
    *
-   * (!) Accounts only for already downloaded files for iOS
+   * (!) Accounts only for locally present files for iOS
    */
   listFiles: (options: TargetPathAndScope) => Promise<
     | {
@@ -81,6 +78,9 @@ declare const defaultExport: Readonly<{
     }
   ) => Promise<string>;
 
+  /**
+   * (!) Accounts only for locally present files for iOS
+   */
   fileExists: (
     options:
       | TargetPathAndScope // iOS

@@ -24,14 +24,20 @@ RCT_EXPORT_MODULE()
 
 //see https://developer.apple.com/library/content/documentation/General/Conceptual/iCloudDesignGuide/Chapters/iCloudFundametals.html
 
-RCT_EXPORT_METHOD(isAvailable:(RCTPromiseResolveBlock)resolve
-                rejecter:(RCTPromiseRejectBlock)reject) {
+RCT_EXPORT_METHOD(isAvailable
+    :(RCTPromiseResolveBlock)resolve
+    :(RCTPromiseRejectBlock)reject
+) {
+    bool isAvailable = [self isIcloudAvailable];
+    return resolve(@(isAvailable));
+}
 
+// Synchronous check
+- (BOOL)isIcloudAvailable {
     NSURL *ubiquityURL = [self icloudDirectory];
-    if(ubiquityURL != nil){
-        return resolve(@YES);
-    }
-    return resolve(@NO);
+
+    bool isAvailable = ubiquityURL != nil;
+    return @(isAvailable);
 }
 
 RCT_EXPORT_METHOD(createFile:(NSDictionary *) options
@@ -211,7 +217,8 @@ RCT_EXPORT_METHOD(getIcloudDocument
     NSPredicate *pred = [NSPredicate predicateWithFormat: @"%K == %@", NSMetadataItemPathKey, expectedPath];
     [_query setPredicate:pred];
 
-    [[NSNotificationCenter defaultCenter] addObserverForName:NSMetadataQueryDidFinishGatheringNotification
+    [[NSNotificationCenter defaultCenter] addObserverForName:
+        NSMetadataQueryDidFinishGatheringNotification
         object:_query
         queue:[NSOperationQueue currentQueue]
         usingBlock:^(NSNotification __strong *notification)
@@ -468,17 +475,22 @@ RCT_EXPORT_METHOD(copyToCloud:(NSDictionary *)options
 }
 
 
-RCT_EXPORT_METHOD(syncCloud:(RCTPromiseResolveBlock)resolve
-                  rejecter:(RCTPromiseRejectBlock)reject) {
+RCT_EXPORT_METHOD(startIcloudSync
+    :(RCTPromiseResolveBlock)resolve
+    :(RCTPromiseRejectBlock)reject
+) {
+    if (![self isIcloudAvailable]) {
+        reject(@"error", @"iCloud is not available", nil);
+    }
 
-    _query = [[NSMetadataQuery alloc] init];
+    NSMetadataQuery *_query = [[NSMetadataQuery alloc] init];
     [_query setSearchScopes:@[NSMetadataQueryUbiquitousDocumentsScope, NSMetadataQueryUbiquitousDataScope]];
     [_query setPredicate:[NSPredicate predicateWithFormat: @"%K LIKE '*'", NSMetadataItemFSNameKey]];
 
 
     dispatch_async(dispatch_get_main_queue(), ^{
 
-        BOOL startedQuery = [self->_query startQuery];
+        BOOL startedQuery = [_query startQuery];
         if (!startedQuery)
         {
             reject(@"error", @"Failed to start query.\n", nil);
@@ -486,9 +498,10 @@ RCT_EXPORT_METHOD(syncCloud:(RCTPromiseResolveBlock)resolve
     });
 
     [[NSNotificationCenter defaultCenter] addObserverForName:
-     NSMetadataQueryDidFinishGatheringNotification
-    object:_query queue:[NSOperationQueue currentQueue]
-    usingBlock:^(NSNotification __strong *notification)
+        NSMetadataQueryDidFinishGatheringNotification
+        object:_query
+        queue:[NSOperationQueue currentQueue]
+        usingBlock:^(NSNotification __strong *notification)
     {
         NSMetadataQuery *query = [notification object];
         [query disableUpdates];
