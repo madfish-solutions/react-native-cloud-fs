@@ -2,13 +2,14 @@
 export type Scope = 'visible' | 'hidden';
 
 export interface CloudFileDetailsBase {
-  id: string;
   name: string;
   /** ISO */
   lastModified: string;
 }
 
-export type GoogleDriveFileDetails = CloudFileDetailsBase;
+export interface GoogleDriveFileDetails extends CloudFileDetailsBase {
+  id: string;
+};
 
 export interface ICloudFileDetails extends CloudFileDetailsBase {
   isFile: boolean;
@@ -18,10 +19,16 @@ export interface ICloudFileDetails extends CloudFileDetailsBase {
   uri?: string;
 }
 
+export interface ICloudDocumentDetails {
+  downloadingStatus: number;
+}
+
 export interface TargetPathAndScope {
   scope: Scope;
   targetPath: string;
 }
+
+export default defaultExport;
 
 declare const defaultExport: Readonly<{
   /** iOS only */
@@ -58,18 +65,20 @@ declare const defaultExport: Readonly<{
    *
    * (!) Accounts only for locally present files for iOS
    */
-  listFiles: (options: TargetPathAndScope) => Promise<
-    | {
-        files?: GoogleDriveFileDetails[];
-      }
-    | {
-        files?: ICloudFileDetails[];
+  listFiles: <P extends Platform = 'iOS'>(options: TargetPathAndScope) => Promise<
+    P extends 'iOS'
+      ? {
+        files: ICloudFileDetails[];
+        /** Relative hosting dir path */
         path: string;
+      }
+      : {
+        files?: GoogleDriveFileDetails[];
       }
   >;
 
   /**
-   * @returns fileId: string // id for Android & absolute path for iOS
+   * @returns fileId: string // id for Android & path for iOS
    */
   copyToCloud: (
     options: TargetPathAndScope & {
@@ -93,10 +102,11 @@ declare const defaultExport: Readonly<{
 
   // deleteFromCloud: (fileId: string) => Promise<unknown>;
 
-  getGoogleDriveDocument: (fileId: string) => Promise<string>;
+  getIcloudDocumentDetails: (options: TargetPathAndScope) => Promise<ICloudDocumentDetails | undefined>;
 
-  /** iOS only */
   getIcloudDocument: (options: TargetPathAndScope) => Promise<string | undefined>;
+
+  getGoogleDriveDocument: (fileId: string) => Promise<string>;
 }>;
 
-export default defaultExport;
+type Platform = 'Android' | 'iOS';

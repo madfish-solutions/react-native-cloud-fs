@@ -199,7 +199,7 @@ RCT_EXPORT_METHOD(getIcloudDocument
     NSString *destinationPath = [options objectForKey:@"targetPath"];
     NSString *scope = [options objectForKey:@"scope"];
 
-    NSMetadataQuery *_query = [[NSMetadataQuery alloc] init];
+    _query = [[NSMetadataQuery alloc] init];
 
     bool documentsFolder = !scope || [scope caseInsensitiveCompare:@"visible"] == NSOrderedSame;
 
@@ -226,39 +226,93 @@ RCT_EXPORT_METHOD(getIcloudDocument
         NSMetadataQuery *query = [notification object];
         [query disableUpdates];
         [query stopQuery];
-        // _query = nil;
 
         if ([query resultCount] < 1) {
             return resolver(nil);
-        } else if ([query resultCount] == 1) {
-            NSMetadataItem *item = [query resultAtIndex:0];
-            NSURL *url = [item valueForAttribute:NSMetadataItemURLKey];
-            bool fileIsReady = [self startFileDownloadIfNotAvailable: item];
-            if(fileIsReady){
-                NSData *data = [NSData dataWithContentsOfURL: url];
-                NSString *content = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-                return resolver(content);
-            }
-            // Call itself until the file is ready
-            RCTLogTrace(@"Waiting async 2s before retrying...");
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                [self getIcloudDocumentRecurse:options :resolver :rejecter :retryCount+1];
-            });
-        } else {
+        } else if ([query resultCount] > 1) {
             return rejecter(@"error", @"Found multiple documents", nil);
         }
+
+        NSMetadataItem *item = [query resultAtIndex:0];
+        NSURL *url = [item valueForAttribute:NSMetadataItemURLKey];
+        bool fileIsReady = [self startFileDownloadIfNotAvailable: item];
+        if(fileIsReady){
+            NSData *data = [NSData dataWithContentsOfURL: url];
+            NSString *content = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+            return resolver(content);
+        }
+        // Call itself until the file is ready
+        RCTLogTrace(@"Waiting async 2s before retrying...");
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [self getIcloudDocumentRecurse:options :resolver :rejecter :retryCount+1];
+        });
     }];
 
     dispatch_async(dispatch_get_main_queue(), ^{
-
-        BOOL startedQuery = [_query startQuery];
+        BOOL startedQuery = [self->_query startQuery];
         if (!startedQuery)
         {
             rejecter(@"error", @"Failed to start query", nil);
         }
     });
-
 }
+
+RCT_EXPORT_METHOD(getIcloudDocumentDetails
+    :(NSDictionary *)options
+    :(RCTPromiseResolveBlock)resolver
+    :(RCTPromiseRejectBlock)rejecter
+) {
+    NSString *destinationPath = [options objectForKey:@"targetPath"];
+    NSString *scope = [options objectForKey:@"scope"];
+
+    _query = [[NSMetadataQuery alloc] init];
+
+    bool documentsFolder = !scope || [scope caseInsensitiveCompare:@"visible"] == NSOrderedSame;
+
+    if(documentsFolder){
+      [_query setSearchScopes:@[NSMetadataQueryUbiquitousDocumentsScope]];
+    } else {
+      [_query setSearchScopes:@[NSMetadataQueryUbiquitousDataScope]];
+    }
+
+    NSURL *ubiquityURL = documentsFolder ? [self icloudDocumentsDirectory] : [self icloudDirectory];
+    NSURL *expectedURL = [ubiquityURL URLByAppendingPathComponent:destinationPath];
+    NSString *expectedPath = [expectedURL path];
+
+    NSPredicate *pred = [NSPredicate predicateWithFormat: @"%K == %@", NSMetadataItemPathKey, expectedPath];
+    [_query setPredicate:pred];
+
+    [[NSNotificationCenter defaultCenter] addObserverForName:
+        NSMetadataQueryDidFinishGatheringNotification
+        object:_query
+        queue:[NSOperationQueue currentQueue]
+        usingBlock:^(NSNotification __strong *notification)
+    {
+        NSMetadataQuery *query = [notification object];
+        [query disableUpdates];
+        [query stopQuery];
+
+        if ([query resultCount] < 1) {
+            return resolver(nil);
+        } else if ([query resultCount] > 1) {
+            return rejecter(@"error", @"Found multiple documents", nil);
+        }
+
+        NSMetadataItem *item = [query resultAtIndex:0];
+        resolver(@{
+            @"downloadingStatus": [item valueForAttribute:NSMetadataUbiquitousItemDownloadingStatusKey]
+        });
+    }];
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        BOOL startedQuery = [self->_query startQuery];
+        if (!startedQuery)
+        {
+            rejecter(@"error", @"Failed to start query", nil);
+        }
+    });
+}
+
 
 RCT_EXPORT_METHOD(deleteFromCloud:(NSDictionary *)item
 resolver:(RCTPromiseResolveBlock)resolver
@@ -483,14 +537,14 @@ RCT_EXPORT_METHOD(startIcloudSync
         reject(@"error", @"iCloud is not available", nil);
     }
 
-    NSMetadataQuery *_query = [[NSMetadataQuery alloc] init];
+    _query = [[NSMetadataQuery alloc] init];
     [_query setSearchScopes:@[NSMetadataQueryUbiquitousDocumentsScope, NSMetadataQueryUbiquitousDataScope]];
     [_query setPredicate:[NSPredicate predicateWithFormat: @"%K LIKE '*'", NSMetadataItemFSNameKey]];
 
 
     dispatch_async(dispatch_get_main_queue(), ^{
 
-        BOOL startedQuery = [_query startQuery];
+        BOOL startedQuery = [self->_query startQuery];
         if (!startedQuery)
         {
             reject(@"error", @"Failed to start query.\n", nil);
