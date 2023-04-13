@@ -226,6 +226,7 @@ RCT_EXPORT_METHOD(getIcloudDocument
         NSMetadataQuery *query = [notification object];
         [query disableUpdates];
         [query stopQuery];
+        _query = nil;
 
         if ([query resultCount] < 1) {
             return resolver(nil);
@@ -291,6 +292,7 @@ RCT_EXPORT_METHOD(getIcloudDocumentDetails
         NSMetadataQuery *query = [notification object];
         [query disableUpdates];
         [query stopQuery];
+        _query = nil;
 
         if ([query resultCount] < 1) {
             return resolver(nil);
@@ -541,16 +543,6 @@ RCT_EXPORT_METHOD(startIcloudSync
     [_query setSearchScopes:@[NSMetadataQueryUbiquitousDocumentsScope, NSMetadataQueryUbiquitousDataScope]];
     [_query setPredicate:[NSPredicate predicateWithFormat: @"%K LIKE '*'", NSMetadataItemFSNameKey]];
 
-
-    dispatch_async(dispatch_get_main_queue(), ^{
-
-        BOOL startedQuery = [self->_query startQuery];
-        if (!startedQuery)
-        {
-            reject(@"error", @"Failed to start query.\n", nil);
-        }
-    });
-
     [[NSNotificationCenter defaultCenter] addObserverForName:
         NSMetadataQueryDidFinishGatheringNotification
         object:_query
@@ -560,12 +552,22 @@ RCT_EXPORT_METHOD(startIcloudSync
         NSMetadataQuery *query = [notification object];
         [query disableUpdates];
         [query stopQuery];
+        _query = nil;
+
         for (NSMetadataItem *item in query.results) {
             [self startFileDownloadIfNotAvailable: item];
         }
+
         return resolve(@YES);
     }];
 
+    dispatch_async(dispatch_get_main_queue(), ^{
+        BOOL startedQuery = [self->_query startQuery];
+        if (!startedQuery)
+        {
+            reject(@"error", @"Failed to start query.\n", nil);
+        }
+    });
 }
 
 @end
