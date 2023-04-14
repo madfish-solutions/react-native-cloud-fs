@@ -20,7 +20,13 @@ export interface ICloudFileDetails extends CloudFileDetailsBase {
 }
 
 export interface ICloudDocumentDetails {
-  downloadingStatus: number;
+  fileStatus: {
+    downloading: string,
+    isDownloading: boolean,
+    isUploading: boolean,
+    percentDownloaded: number,
+    percentUploaded: number,
+  }
 }
 
 export interface TargetPathAndScope {
@@ -107,6 +113,26 @@ declare const defaultExport: Readonly<{
   getIcloudDocument: (options: TargetPathAndScope) => Promise<string | undefined>;
 
   getGoogleDriveDocument: (fileId: string) => Promise<string>;
+
+  ////// # Key-Value-Store
+
+  getKeyValueStoreObject: (key: string) => Promise<string | undefined>;
+
+  getKeyValueStoreObjectDetails: (key: string) => Promise<{
+    valueLength: number;
+  } | undefined>;
+
+  /**
+   * (i) Single value size limit is 4KB; Total limit is 64KB
+  */
+  putKeyValueStoreObject: (data: { key: string; value: string }) => Promise<void>;
+
+  /**
+   * See: https://developer.apple.com/documentation/foundation/nsubiquitouskeyvaluestore/1415989-synchronize
+  */
+  syncKeyValueStoreData: () => Promise<boolean>;
+
+  removeKeyValueStoreObject: (key: string) => Promise<boolean>;
 }>;
 
 type Platform = 'Android' | 'iOS';

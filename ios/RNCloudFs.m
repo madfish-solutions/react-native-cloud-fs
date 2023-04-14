@@ -302,7 +302,13 @@ RCT_EXPORT_METHOD(getIcloudDocumentDetails
 
         NSMetadataItem *item = [query resultAtIndex:0];
         resolver(@{
-            @"downloadingStatus": [item valueForAttribute:NSMetadataUbiquitousItemDownloadingStatusKey]
+            @"fileStatus": @{
+                @"downloading": [item valueForAttribute:NSMetadataUbiquitousItemDownloadingStatusKey],
+                @"isDownloading": [item valueForAttribute:NSMetadataUbiquitousItemIsDownloadingKey],
+                @"isUploading": [item valueForAttribute:NSMetadataUbiquitousItemIsUploadingKey],
+                @"percentDownloaded": [item valueForAttribute:NSMetadataUbiquitousItemPercentDownloadedKey],
+                @"percentUploaded": [item valueForAttribute:NSMetadataUbiquitousItemPercentUploadedKey]
+            }
         });
     }];
 
@@ -569,5 +575,81 @@ RCT_EXPORT_METHOD(startIcloudSync
         }
     });
 }
+
+
+//// # NSUbiquitousKeyValueStore
+
+
+RCT_EXPORT_METHOD(getKeyValueStoreObject
+    :(NSString *)key
+    :(RCTPromiseResolveBlock)resolver
+    :(RCTPromiseRejectBlock)rejecter
+) {
+    NSUbiquitousKeyValueStore *iCloudStore = [NSUbiquitousKeyValueStore defaultStore];
+
+    NSString *value = [iCloudStore objectForKey:key];
+    if (value) {
+        resolver(value);
+    } else {
+        resolver(nil);
+    }
+}
+
+RCT_EXPORT_METHOD(getKeyValueStoreObjectDetails
+    :(NSString *)key
+    :(RCTPromiseResolveBlock)resolver
+    :(RCTPromiseRejectBlock)rejecter
+) {
+    NSUbiquitousKeyValueStore *iCloudStore = [NSUbiquitousKeyValueStore defaultStore];
+
+    NSString *value = [iCloudStore objectForKey:key];
+    if (value) {
+        resolver(@{
+            @"valueLength": @(value.length)
+        });
+    } else {
+        resolver(nil);
+    }
+}
+
+RCT_EXPORT_METHOD(putKeyValueStoreObject
+    :(NSDictionary *)options
+    :(RCTPromiseResolveBlock)resolver
+    :(RCTPromiseRejectBlock)rejecter
+) {
+    NSString *key = [options objectForKey:@"key"];
+    NSString *value = [options objectForKey:@"value"];
+
+    NSUbiquitousKeyValueStore *iCloudStore = [NSUbiquitousKeyValueStore defaultStore];
+    [iCloudStore setObject:value forKey:key];
+
+    resolver(nil);
+}
+
+// See: https://developer.apple.com/documentation/foundation/nsubiquitouskeyvaluestore/1415989-synchronize
+RCT_EXPORT_METHOD(syncKeyValueStoreData
+    :(RCTPromiseResolveBlock)resolver
+    :(RCTPromiseRejectBlock)rejecter
+) {
+    NSUbiquitousKeyValueStore *iCloudStore = [NSUbiquitousKeyValueStore defaultStore];
+    bool done = [iCloudStore synchronize];
+
+    resolver(@(done));
+}
+
+RCT_EXPORT_METHOD(removeKeyValueStoreObject
+    :(NSString *)key
+    :(RCTPromiseResolveBlock)resolver
+    :(RCTPromiseRejectBlock)rejecter
+) {
+    NSUbiquitousKeyValueStore *iCloudStore = [NSUbiquitousKeyValueStore defaultStore];
+
+    [iCloudStore removeObjectForKey:key];
+
+    bool done = [iCloudStore synchronize];
+
+    resolver(@(done));
+}
+
 
 @end
