@@ -128,11 +128,16 @@ declare const defaultExport: Readonly<{
   putKeyValueStoreObject: (data: { key: string; value: string }) => Promise<void>;
 
   /**
-   * See: https://developer.apple.com/documentation/foundation/nsubiquitouskeyvaluestore/1415989-synchronize
+   * Syncs in-memory and disk key-value storages.
+   * Later will be orkestrated for upload to iCloud.
+   *
+   * See:
+   * - https://developer.apple.com/documentation/foundation/icloud/synchronizing_app_preferences_with_icloud
+   * - https://developer.apple.com/documentation/foundation/nsubiquitouskeyvaluestore/1415989-synchronize
   */
   syncKeyValueStoreData: () => Promise<boolean>;
 
-  removeKeyValueStoreObject: (key: string) => Promise<boolean>;
+  removeKeyValueStoreObject: (key: string) => Promise<void>;
 }>;
 
 type Platform = 'Android' | 'iOS';

@@ -579,7 +579,6 @@ RCT_EXPORT_METHOD(startIcloudSync
 
 //// # NSUbiquitousKeyValueStore
 
-
 RCT_EXPORT_METHOD(getKeyValueStoreObject
     :(NSString *)key
     :(RCTPromiseResolveBlock)resolver
@@ -646,9 +645,7 @@ RCT_EXPORT_METHOD(removeKeyValueStoreObject
 
     [iCloudStore removeObjectForKey:key];
 
-    bool done = [iCloudStore synchronize];
-
-    resolver(@(done));
+    resolver(nil);
 }
 
 
