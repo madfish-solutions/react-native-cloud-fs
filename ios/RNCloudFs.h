@@ -7,4 +7,5 @@
 
 @interface RNCloudFs : NSObject <RCTBridgeModule>
 @property (nonatomic, strong) NSMetadataQuery *query;
+@property (nonatomic, strong) NSUbiquitousKeyValueStore *iCloudStore;
 @end

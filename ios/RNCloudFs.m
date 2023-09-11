@@ -23,15 +23,21 @@
 RCT_EXPORT_MODULE()
 
 //see https://developer.apple.com/library/content/documentation/General/Conceptual/iCloudDesignGuide/Chapters/iCloudFundametals.html
-  
-RCT_EXPORT_METHOD(isAvailable:(RCTPromiseResolveBlock)resolve
-                rejecter:(RCTPromiseRejectBlock)reject) {
 
+RCT_EXPORT_METHOD(isAvailable
+    :(RCTPromiseResolveBlock)resolve
+    :(RCTPromiseRejectBlock)reject
+) {
+    bool isAvailable = [self isIcloudAvailable];
+    return resolve(@(isAvailable));
+}
+
+// Synchronous check
+- (BOOL)isIcloudAvailable {
     NSURL *ubiquityURL = [self icloudDirectory];
-    if(ubiquityURL != nil){
-        return resolve(@YES);
-    }
-    return resolve(@NO);
+
+    bool isAvailable = ubiquityURL != nil;
+    return @(isAvailable);
 }
 
 RCT_EXPORT_METHOD(createFile:(NSDictionary *) options
@@ -170,57 +176,157 @@ RCT_EXPORT_METHOD(listFiles:(NSDictionary *)options
 }
 
 
-RCT_EXPORT_METHOD(getIcloudDocument:(NSString *)filename
-resolver:(RCTPromiseResolveBlock)resolver
-rejecter:(RCTPromiseRejectBlock)rejecter) {
-    __block bool resolved = NO;
+RCT_EXPORT_METHOD(getIcloudDocument
+    :(NSDictionary *)options
+    :(RCTPromiseResolveBlock)resolver
+    :(RCTPromiseRejectBlock)rejecter
+) {
+    [self getIcloudDocumentRecurse:options :resolver :rejecter :1];
+}
+
+- (void)getIcloudDocumentRecurse
+    :(NSDictionary *)options
+    :(RCTPromiseResolveBlock)resolver
+    :(RCTPromiseRejectBlock)rejecter
+    :(int)retryCount
+{
+    if (retryCount > 30) {
+        NSString *errMsg = @"Failed to read document in 60 seconds";
+        RCTLogTrace(errMsg);
+        return rejecter(@"error", errMsg, nil);
+    }
+
+    NSString *destinationPath = [options objectForKey:@"targetPath"];
+    NSString *scope = [options objectForKey:@"scope"];
+
     _query = [[NSMetadataQuery alloc] init];
 
-    [_query setSearchScopes:@[NSMetadataQueryUbiquitousDocumentsScope, NSMetadataQueryUbiquitousDataScope]];
+    bool documentsFolder = !scope || [scope caseInsensitiveCompare:@"visible"] == NSOrderedSame;
 
-    NSPredicate *pred = [NSPredicate predicateWithFormat: @"%K == %@", NSMetadataItemFSNameKey, filename];
+    if(documentsFolder){
+      [_query setSearchScopes:@[NSMetadataQueryUbiquitousDocumentsScope]];
+    } else {
+      [_query setSearchScopes:@[NSMetadataQueryUbiquitousDataScope]];
+    }
+
+    NSURL *ubiquityURL = documentsFolder ? [self icloudDocumentsDirectory] : [self icloudDirectory];
+    NSURL *expectedURL = [ubiquityURL URLByAppendingPathComponent:destinationPath];
+    // NSString *relativePath = [[url path] stringByReplacingOccurrencesOfString:[ubiquityURL path] withString:@"."];
+    NSString *expectedPath = [expectedURL path];
+
+    NSPredicate *pred = [NSPredicate predicateWithFormat: @"%K == %@", NSMetadataItemPathKey, expectedPath];
     [_query setPredicate:pred];
-    
 
     [[NSNotificationCenter defaultCenter] addObserverForName:
-     NSMetadataQueryDidFinishGatheringNotification
-    object:_query queue:[NSOperationQueue currentQueue]
-    usingBlock:^(NSNotification __strong *notification)
+        NSMetadataQueryDidFinishGatheringNotification
+        object:_query
+        queue:[NSOperationQueue currentQueue]
+        usingBlock:^(NSNotification __strong *notification)
     {
         NSMetadataQuery *query = [notification object];
         [query disableUpdates];
         [query stopQuery];
-        for (NSMetadataItem *item in query.results) {
-            if([[item valueForAttribute:NSMetadataItemFSNameKey] isEqualToString:filename]){
-                resolved = YES;
-                NSURL *url = [item valueForAttribute:NSMetadataItemURLKey];
-                bool fileIsReady = [self downloadFileIfNotAvailable: item];
-                if(fileIsReady){
-                    NSData *data = [NSData dataWithContentsOfURL: url];
-                    NSString *content = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-                    return resolver(content);
-                } else {
-                    // Call itself until the file it's ready
-                    [self getIcloudDocument:filename resolver:resolver rejecter:rejecter];
-                }
-            }
+        _query = nil;
+
+        if ([query resultCount] < 1) {
+            return resolver(nil);
+        } else if ([query resultCount] > 1) {
+            return rejecter(@"error", @"Found multiple documents", nil);
         }
-        if(!resolved){
-            return rejecter(@"error", [NSString stringWithFormat:@"item not found '%@'", filename], nil);
+
+        NSMetadataItem *item = [query resultAtIndex:0];
+        NSURL *url = [item valueForAttribute:NSMetadataItemURLKey];
+        bool fileIsReady = [self startFileDownloadIfNotAvailable: item];
+        if(fileIsReady){
+            NSData *data = [NSData dataWithContentsOfURL: url];
+            NSString *content = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+            return resolver(content);
         }
+        // Call itself until the file is ready
+        RCTLogTrace(@"Waiting async 2s before retrying...");
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [self getIcloudDocumentRecurse:options :resolver :rejecter :retryCount+1];
+        });
     }];
 
     dispatch_async(dispatch_get_main_queue(), ^{
-        [self->_query startQuery];
+        BOOL startedQuery = [self->_query startQuery];
+        if (!startedQuery)
+        {
+            rejecter(@"error", @"Failed to start query", nil);
+        }
     });
-
 }
+
+RCT_EXPORT_METHOD(getIcloudDocumentDetails
+    :(NSDictionary *)options
+    :(RCTPromiseResolveBlock)resolver
+    :(RCTPromiseRejectBlock)rejecter
+) {
+    NSString *destinationPath = [options objectForKey:@"targetPath"];
+    NSString *scope = [options objectForKey:@"scope"];
+
+    _query = [[NSMetadataQuery alloc] init];
+
+    bool documentsFolder = !scope || [scope caseInsensitiveCompare:@"visible"] == NSOrderedSame;
+
+    if(documentsFolder){
+      [_query setSearchScopes:@[NSMetadataQueryUbiquitousDocumentsScope]];
+    } else {
+      [_query setSearchScopes:@[NSMetadataQueryUbiquitousDataScope]];
+    }
+
+    NSURL *ubiquityURL = documentsFolder ? [self icloudDocumentsDirectory] : [self icloudDirectory];
+    NSURL *expectedURL = [ubiquityURL URLByAppendingPathComponent:destinationPath];
+    NSString *expectedPath = [expectedURL path];
+
+    NSPredicate *pred = [NSPredicate predicateWithFormat: @"%K == %@", NSMetadataItemPathKey, expectedPath];
+    [_query setPredicate:pred];
+
+    [[NSNotificationCenter defaultCenter] addObserverForName:
+        NSMetadataQueryDidFinishGatheringNotification
+        object:_query
+        queue:[NSOperationQueue currentQueue]
+        usingBlock:^(NSNotification __strong *notification)
+    {
+        NSMetadataQuery *query = [notification object];
+        [query disableUpdates];
+        [query stopQuery];
+        _query = nil;
+
+        if ([query resultCount] < 1) {
+            return resolver(nil);
+        } else if ([query resultCount] > 1) {
+            return rejecter(@"error", @"Found multiple documents", nil);
+        }
+
+        NSMetadataItem *item = [query resultAtIndex:0];
+        resolver(@{
+            @"fileStatus": @{
+                @"downloading": [item valueForAttribute:NSMetadataUbiquitousItemDownloadingStatusKey],
+                @"isDownloading": [item valueForAttribute:NSMetadataUbiquitousItemIsDownloadingKey],
+                @"isUploading": [item valueForAttribute:NSMetadataUbiquitousItemIsUploadingKey],
+                @"percentDownloaded": [item valueForAttribute:NSMetadataUbiquitousItemPercentDownloadedKey],
+                @"percentUploaded": [item valueForAttribute:NSMetadataUbiquitousItemPercentUploadedKey]
+            }
+        });
+    }];
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        BOOL startedQuery = [self->_query startQuery];
+        if (!startedQuery)
+        {
+            rejecter(@"error", @"Failed to start query", nil);
+        }
+    });
+}
+
 
 RCT_EXPORT_METHOD(deleteFromCloud:(NSDictionary *)item
 resolver:(RCTPromiseResolveBlock)resolver
 rejecter:(RCTPromiseRejectBlock)rejecter) {
    NSError *error;
-   
+
     NSFileManager* fileManager = [NSFileManager defaultManager];
     [fileManager removeItemAtPath:item[@"path"] error:&error];
     if(error) {
@@ -411,57 +517,136 @@ RCT_EXPORT_METHOD(copyToCloud:(NSDictionary *)options
 }
 
 
-
-- (BOOL)downloadFileIfNotAvailable:(NSMetadataItem*)item {
-    if ([[item valueForAttribute:NSMetadataUbiquitousItemDownloadingStatusKey] isEqualToString:NSMetadataUbiquitousItemDownloadingStatusCurrent]){
+- (BOOL)startFileDownloadIfNotAvailable:(NSMetadataItem*)item {
+    NSString *downloadingStatus = [item valueForAttribute:NSMetadataUbiquitousItemDownloadingStatusKey];
+    if ([downloadingStatus isEqualToString:NSMetadataUbiquitousItemDownloadingStatusCurrent]) {
         NSLog(@"File is ready!");
         return YES;
     }
-    // Download the file.
-    NSFileManager*  fm = [NSFileManager defaultManager];
+
+    // Starting download
+    NSFileManager *fm = [NSFileManager defaultManager];
     NSError *downloadError = nil;
     [fm startDownloadingUbiquitousItemAtURL:[item valueForAttribute:NSMetadataItemURLKey] error:&downloadError];
+
     if (downloadError) {
         NSLog(@"Error occurred starting download: %@", downloadError);
     }
-    NSLog(@"Waiting before retrying...");
-    [NSThread sleepForTimeInterval:0.3];
-    return NO;
 
+    return NO;
 }
 
 
-RCT_EXPORT_METHOD(syncCloud:(RCTPromiseResolveBlock)resolve
-                  rejecter:(RCTPromiseRejectBlock)reject) {
-    
+RCT_EXPORT_METHOD(startIcloudSync
+    :(RCTPromiseResolveBlock)resolve
+    :(RCTPromiseRejectBlock)reject
+) {
+    if (![self isIcloudAvailable]) {
+        reject(@"error", @"iCloud is not available", nil);
+    }
+
     _query = [[NSMetadataQuery alloc] init];
     [_query setSearchScopes:@[NSMetadataQueryUbiquitousDocumentsScope, NSMetadataQueryUbiquitousDataScope]];
     [_query setPredicate:[NSPredicate predicateWithFormat: @"%K LIKE '*'", NSMetadataItemFSNameKey]];
 
+    [[NSNotificationCenter defaultCenter] addObserverForName:
+        NSMetadataQueryDidFinishGatheringNotification
+        object:_query
+        queue:[NSOperationQueue currentQueue]
+        usingBlock:^(NSNotification __strong *notification)
+    {
+        NSMetadataQuery *query = [notification object];
+        [query disableUpdates];
+        [query stopQuery];
+        _query = nil;
+
+        for (NSMetadataItem *item in query.results) {
+            [self startFileDownloadIfNotAvailable: item];
+        }
+
+        return resolve(@YES);
+    }];
 
     dispatch_async(dispatch_get_main_queue(), ^{
-        
         BOOL startedQuery = [self->_query startQuery];
         if (!startedQuery)
         {
             reject(@"error", @"Failed to start query.\n", nil);
         }
     });
-    
-    [[NSNotificationCenter defaultCenter] addObserverForName:
-     NSMetadataQueryDidFinishGatheringNotification
-    object:_query queue:[NSOperationQueue currentQueue]
-    usingBlock:^(NSNotification __strong *notification)
-    {
-        NSMetadataQuery *query = [notification object];
-        [query disableUpdates];
-        [query stopQuery];
-        for (NSMetadataItem *item in query.results) {
-            [self downloadFileIfNotAvailable: item];
-        }
-        return resolve(@YES);
-    }];
-    
 }
+
+
+//// # NSUbiquitousKeyValueStore
+
+RCT_EXPORT_METHOD(getKeyValueStoreObject
+    :(NSString *)key
+    :(RCTPromiseResolveBlock)resolver
+    :(RCTPromiseRejectBlock)rejecter
+) {
+    NSUbiquitousKeyValueStore *iCloudStore = [NSUbiquitousKeyValueStore defaultStore];
+
+    NSString *value = [iCloudStore objectForKey:key];
+    if (value) {
+        resolver(value);
+    } else {
+        resolver(nil);
+    }
+}
+
+RCT_EXPORT_METHOD(getKeyValueStoreObjectDetails
+    :(NSString *)key
+    :(RCTPromiseResolveBlock)resolver
+    :(RCTPromiseRejectBlock)rejecter
+) {
+    NSUbiquitousKeyValueStore *iCloudStore = [NSUbiquitousKeyValueStore defaultStore];
+
+    NSString *value = [iCloudStore objectForKey:key];
+    if (value) {
+        resolver(@{
+            @"valueLength": @(value.length)
+        });
+    } else {
+        resolver(nil);
+    }
+}
+
+RCT_EXPORT_METHOD(putKeyValueStoreObject
+    :(NSDictionary *)options
+    :(RCTPromiseResolveBlock)resolver
+    :(RCTPromiseRejectBlock)rejecter
+) {
+    NSString *key = [options objectForKey:@"key"];
+    NSString *value = [options objectForKey:@"value"];
+
+    NSUbiquitousKeyValueStore *iCloudStore = [NSUbiquitousKeyValueStore defaultStore];
+    [iCloudStore setObject:value forKey:key];
+
+    resolver(nil);
+}
+
+// See: https://developer.apple.com/documentation/foundation/nsubiquitouskeyvaluestore/1415989-synchronize
+RCT_EXPORT_METHOD(syncKeyValueStoreData
+    :(RCTPromiseResolveBlock)resolver
+    :(RCTPromiseRejectBlock)rejecter
+) {
+    NSUbiquitousKeyValueStore *iCloudStore = [NSUbiquitousKeyValueStore defaultStore];
+    bool done = [iCloudStore synchronize];
+
+    resolver(@(done));
+}
+
+RCT_EXPORT_METHOD(removeKeyValueStoreObject
+    :(NSString *)key
+    :(RCTPromiseResolveBlock)resolver
+    :(RCTPromiseRejectBlock)rejecter
+) {
+    NSUbiquitousKeyValueStore *iCloudStore = [NSUbiquitousKeyValueStore defaultStore];
+
+    [iCloudStore removeObjectForKey:key];
+
+    resolver(nil);
+}
+
 
 @end
