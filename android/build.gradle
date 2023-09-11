@@ -1,4 +1,7 @@
 buildscript {
+    ext.safeExtGet = {prop, fallback ->
+        rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+    }
     repositories {
         jcenter()
     }
@@ -10,12 +13,12 @@ buildscript {
 apply plugin: 'com.android.library'
 
 android {
-    compileSdkVersion 28
-    buildToolsVersion "28.0.3"
+    compileSdkVersion safeExtGet('compileSdkVersion', 28)
+    buildToolsVersion safeExtGet('buildToolsVersion', "28.0.3")
 
     defaultConfig {
         minSdkVersion 19
-        targetSdkVersion 28
+        targetSdkVersion safeExtGet('targetSdkVersion', 28)
         versionCode 1
         versionName "1.0"
         ndk {
@@ -29,7 +32,7 @@ android {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
-    
+
     packagingOptions {
         exclude 'META-INF/DEPENDENCIES'
     }
@@ -43,9 +46,8 @@ allprojects {
 
 dependencies {
     implementation 'com.google.android.gms:play-services-drive:17.0.0'
-    implementation ('com.google.android.gms:play-services-auth:17.0.0') {
-        force = true;
-    }
+    implementation 'com.google.android.gms:play-services-auth:17.0.0'
+
     implementation 'com.google.http-client:google-http-client-gson:1.26.0'
     implementation('com.google.api-client:google-api-client-android:1.26.0') {
         exclude group: 'org.apache.httpcomponents'

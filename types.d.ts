@@ -9,7 +9,7 @@ export interface CloudFileDetailsBase {
 
 export interface GoogleDriveFileDetails extends CloudFileDetailsBase {
   id: string;
-};
+}
 
 export interface ICloudFileDetails extends CloudFileDetailsBase {
   isFile: boolean;
